@@ -26,7 +26,7 @@ void backpropagate_error(float* deltaL_store, float* deltaL_sum, struct NETWORK*
     float der[N->L[curLayer].neuron_cnt];
     LReLU_der(der, N->L[curLayer].Z, N->L[curLayer].neuron_cnt);
 
-    float* transposed_weight = transpose_matrix(N->L[curLayer + 1].weights, N->L[curLayer + 1].neuron_cnt, N->L[curLayer].neuron_cnt);
+    float* transposed_weight = transpose_matrix(N->L[curLayer + 1].weights, N->L[curLayer].neuron_cnt, N->L[curLayer + 1].neuron_cnt);
 
     matrix_mul(deltaL_store, deltaLp1, transposed_weight, N->L[curLayer + 1].neuron_cnt, N->L[curLayer].neuron_cnt);
     free(transposed_weight);
@@ -37,7 +37,8 @@ void backpropagate_error(float* deltaL_store, float* deltaL_sum, struct NETWORK*
 
         __m512 dst = _mm512_maskz_loadu_ps(overflow & clearold, deltaL_sum + i);
         __m512 intermediate = _mm512_mul_ps(_mm512_maskz_loadu_ps(overflow, deltaL_store + i), _mm512_maskz_loadu_ps(overflow, der + i));
-        dst = _mm512_sub_ps(dst, intermediate);
+        _mm512_mask_storeu_ps(deltaL_store + i, overflow, intermediate);
+        dst = _mm512_add_ps(dst, intermediate);
 
         _mm512_mask_storeu_ps(deltaL_sum + i, overflow, dst);
     }
@@ -49,6 +50,7 @@ void backpropagate_error(float* deltaL_store, float* deltaL_sum, struct NETWORK*
 void sum_W(struct BACKPROP_CTX* B, struct NETWORK* N, float* in, int64_t in_cnt, __mmask16 clear_old){
     for(int i = 0; i < N->L[0].neuron_cnt; i++){
         for(int j = 0; j < in_cnt; j+=BITS_IN_UINT16_T){
+// THIS COMPUTATION COULD BE A POINT OF FAILURE!
             __m512 error = _mm512_set1_ps(B->error[0][i]);
 
             __mmask16 opmask = UINT16_MAX >> (j+BITS_IN_UINT16_T - in_cnt > 0? j+BITS_IN_UINT16_T - in_cnt: 0);
@@ -57,8 +59,8 @@ void sum_W(struct BACKPROP_CTX* B, struct NETWORK* N, float* in, int64_t in_cnt,
             error = _mm512_mul_ps(error, prev_activations);
 
             __m512 deltaW_sum = _mm512_maskz_loadu_ps(opmask & (-clear_old), B->sum[0] + i*in_cnt + j);
-
             deltaW_sum = _mm512_add_ps(error, deltaW_sum);
+
             _mm512_mask_storeu_ps(B->sum[0] + i*in_cnt + j, opmask, deltaW_sum);
         }
     }
@@ -74,8 +76,8 @@ void sum_W(struct BACKPROP_CTX* B, struct NETWORK* N, float* in, int64_t in_cnt,
                 error = _mm512_mul_ps(error, prev_activations);
 
                 __m512 deltaW_sum = _mm512_maskz_loadu_ps(opmask & (-clear_old), B->sum[i] + j*N->L[i-1].neuron_cnt + k);
-
                 deltaW_sum = _mm512_add_ps(error, deltaW_sum);
+
                 _mm512_mask_storeu_ps(B->sum[i] + j*N->L[i-1].neuron_cnt + k, opmask, deltaW_sum);
             }
         }
@@ -94,7 +96,6 @@ void update_weights(struct NETWORK* N, struct BACKPROP_CTX* B, struct BACKPROP_C
             deltaW = _mm512_mul_ps(deltaW, tomul);
 
             __m512 new_W = _mm512_sub_ps(_mm512_maskz_loadu_ps(opmask, N->L[0].weights + i*in_cnt + j), deltaW);
-            
             _mm512_mask_storeu_ps(N->L[0].weights + i*in_cnt + j, opmask, new_W); 
         }
     }
@@ -102,13 +103,12 @@ void update_weights(struct NETWORK* N, struct BACKPROP_CTX* B, struct BACKPROP_C
     for(int i = 1; i < N->layer_cnt; i++){
         for(int j = 0; j < N->L[i].neuron_cnt; j++){                                                // current number of neurons (rows)
             for(int64_t k = 0; k < N->L[i-1].neuron_cnt; k+=BITS_IN_UINT16_T){                      // previous number of neurons (columns)
-                __mmask16 opmask = UINT16_MAX >> (k+BITS_IN_UINT16_T - N->L[i-1].neuron_cnt > 0? j+BITS_IN_UINT16_T - N->L[i-1].neuron_cnt: 0);
+                __mmask16 opmask = UINT16_MAX >> (k+BITS_IN_UINT16_T - N->L[i-1].neuron_cnt > 0? k+BITS_IN_UINT16_T - N->L[i-1].neuron_cnt: 0);
                 __m512 deltaW = _mm512_maskz_loadu_ps(opmask, W_SUM->sum[i] + j*N->L[i-1].neuron_cnt + k);
 
                 deltaW = _mm512_mul_ps(deltaW, tomul);
                 
                 __m512 new_W = _mm512_sub_ps(_mm512_maskz_loadu_ps(opmask, N->L[i].weights + j*N->L[i-1].neuron_cnt + k), deltaW);
-
                 _mm512_mask_storeu_ps(N->L[i].weights + j*N->L[i-1].neuron_cnt + k, opmask, new_W); 
             }
         }
@@ -142,9 +142,7 @@ struct NETWORK* train(uint32_t generations, uint32_t* ncnt, uint32_t lcnt, float
 
     for(uint32_t i = 0; i < generations; i++){
 // TODO: speed up batch generation somehow
-        uint32_t batch[batch_size];
-        getrandom(&batch, batch_size*sizeof(uint32_t), 0);
-        for(int j = 0; j < batch_size; j++) batch[j] %= input_cnt;
+        uint32_t batch[4] = {0,1,2,3};
 
         for(uint32_t j = 0; j < batch_size; j++){
             forward_pass(N, in[batch[j]], in_instance_size);
@@ -159,6 +157,12 @@ struct NETWORK* train(uint32_t generations, uint32_t* ncnt, uint32_t lcnt, float
 
         update_weights(N, B, W_SUM, in_instance_size, eta, batch_size);
         update_biases(N, B, eta, batch_size);
+
+        puts("OUTPUT\t\tINPUT 0\t\tINPUT 1\t\tEXPECTED OUTPUT");
+        for(int j = 0; j < batch_size; j++){
+            forward_pass(N, in[batch[j]], 2);
+            printf("%f\t%f\t%f\t%f\n", N->L[N->layer_cnt-1].alpha[0], in[batch[j]][0], in[batch[j]][1], expected_out[batch[j]][0]);
+        }
     }
 
     kill_backprop(W_SUM, lcnt); 

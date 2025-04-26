@@ -5,7 +5,7 @@
 
 int main(){
     float in[4][2] = {{0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}};
-    float out[4][1] = {{0.0f}, {1.0f}, {1.0f}, {0.0f}};
+    float out[4][1] = {{1.0f}, {1.0f}, {1.0f}, {0.0f}};
 
     float** real_in = calloc(4, sizeof(float*)), **real_out = calloc(4, sizeof(float*));
 
@@ -18,14 +18,15 @@ int main(){
         real_out[i][0] = out[i][0];
     }
 
-    uint32_t ncnt[] = {3, 1};
+    uint32_t ncnt[] = {4, 4, 1};
 
     int a = 0;
     getrandom(&a, sizeof(int), 0);
     a %= 65536;
-    for(int i = 0; i < a; i++) RandomFloat(-1, 1);
+    for(int i = 0; i < a; i++) printf("%f ", RandomFloat(-1, 1));
+    puts("");
 
-    struct NETWORK* N = train(10000, ncnt, 2, real_in, 4, 2, real_out, 1, 0.1);
+    struct NETWORK* N = train(10, ncnt, 3, real_in, 4, 2, real_out, 4, 0.75);
 
 // cleanup
     kill_network(N);
