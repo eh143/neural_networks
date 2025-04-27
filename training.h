@@ -130,11 +130,10 @@ void update_biases(struct NETWORK* N, struct BACKPROP_CTX* B, float eta, uint32_
     }
 }
 
+// in_instance_size = number of input neurons
 // eta_nom = nominator of learning rate
 // eta_den = denominator of learning rate
-// learning rate is eta_nom/eta_den
-// due to PRECISION ISSUES with the vectorized division implementation, we do not recommend having eta_nom be larger than 2**21, or eta_den*batch_size larger than 2**53.
-// fixing this "issue" would negatively impact training times.
+// learning rate is eta
 struct NETWORK* train(uint32_t generations, uint32_t* ncnt, uint32_t lcnt, float** in, uint32_t input_cnt, uint32_t in_instance_size, float** expected_out, uint32_t batch_size, float eta){
     struct NETWORK* N = init_network(ncnt, lcnt, in_instance_size);
     struct BACKPROP_CTX* W_SUM = init_backprop(ncnt, lcnt, in_instance_size);                       // holds sum of all delta(x,L)*(alpha(x,L-1))T within the same batch
@@ -142,7 +141,9 @@ struct NETWORK* train(uint32_t generations, uint32_t* ncnt, uint32_t lcnt, float
 
     for(uint32_t i = 0; i < generations; i++){
 // TODO: speed up batch generation somehow
-        uint32_t batch[4] = {0,1,2,3};
+        uint32_t batch[batch_size];
+        getrandom(batch, batch_size*sizeof(uint32_t), 0);
+        for(int j = 0; j < batch_size; j++) batch[j] %= input_cnt;
 
         for(uint32_t j = 0; j < batch_size; j++){
             forward_pass(N, in[batch[j]], in_instance_size);
@@ -157,12 +158,6 @@ struct NETWORK* train(uint32_t generations, uint32_t* ncnt, uint32_t lcnt, float
 
         update_weights(N, B, W_SUM, in_instance_size, eta, batch_size);
         update_biases(N, B, eta, batch_size);
-
-        puts("OUTPUT\t\tINPUT 0\t\tINPUT 1\t\tEXPECTED OUTPUT");
-        for(int j = 0; j < batch_size; j++){
-            forward_pass(N, in[batch[j]], 2);
-            printf("%f\t%f\t%f\t%f\n", N->L[N->layer_cnt-1].alpha[0], in[batch[j]][0], in[batch[j]][1], expected_out[batch[j]][0]);
-        }
     }
 
     kill_backprop(W_SUM, lcnt); 

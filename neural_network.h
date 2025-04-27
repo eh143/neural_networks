@@ -11,6 +11,8 @@ void LReLU(float* dst, float* src, uint32_t size){
         data = _mm512_mask_mul_ps(data, toosmall, data, _mm512_set1_ps(0.01f));
 
         _mm512_mask_storeu_ps(dst + i, opmask, data);
+
+        //dst[i] = 1/(1+expf(-src[i]));
     }
 }
 
@@ -31,6 +33,7 @@ void LReLU_der(float* dst, float* src, uint32_t size){
         __m512 der = _mm512_mask_mov_ps(posone, toosmall, point01);
 
         _mm512_mask_storeu_ps(dst + i, opmask, der);
+        //dst[i] = (1/(1+expf(-src[i])))*(1-(1/(1+expf(-src[i]))));
     }
 }
 
@@ -101,7 +104,7 @@ struct NETWORK* init_network(uint32_t* ncnt, uint32_t lcnt, uint32_t input_cnt){
     N->L[0].Z = calloc(ncnt[0], sizeof(float));
 
     N->L[0].weights = calloc(ncnt[0]*input_cnt, sizeof(float));
-    for(int i = 0; i < ncnt[0]*input_cnt; i++) N->L[0].weights[i] = RandomFloat(0.5f, 1.0f);
+    for(int i = 0; i < ncnt[0]*input_cnt; i++) N->L[0].weights[i] = RandomFloat(-1.0f, 1.0f);
 
     for(int i = 1; i < lcnt; i++){
         N->L[i].neuron_cnt = ncnt[i];
@@ -113,7 +116,7 @@ struct NETWORK* init_network(uint32_t* ncnt, uint32_t lcnt, uint32_t input_cnt){
         N->L[i].Z = calloc(ncnt[i], sizeof(float));
 
         N->L[i].weights = calloc(ncnt[i]*ncnt[i-1], sizeof(float));
-        for(int j = 0; j < ncnt[i]*ncnt[i-1]; j++) N->L[i].weights[j] = RandomFloat(0.5f, 1.0f);
+        for(int j = 0; j < ncnt[i]*ncnt[i-1]; j++) N->L[i].weights[j] = RandomFloat(-1.0f, 1.0f);
     }
 
     return N;
