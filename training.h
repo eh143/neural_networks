@@ -158,6 +158,28 @@ struct NETWORK* train(uint32_t generations, uint32_t* ncnt, uint32_t lcnt, float
 
         update_weights(N, B, W_SUM, in_instance_size, eta, batch_size);
         update_biases(N, B, eta, batch_size);
+
+        if(i % 10000 == 10000 - 1){
+            puts("ACCURACY FIGURE INCOMING");
+            int correct_guesses = 0;
+            for(int j = 0; j < NUM_TEST; j++){
+                forward_pass(N, test_image[j], SIZE);
+
+                float highest_hyp = 0, highest_test = 0;
+                int ind_hyp = 0, ind_test = 0;
+
+                for(int k = 0; k < 10; k++){
+                    if(highest_test < test_label[j][k]){ highest_test = test_label[j][k]; ind_test = k; }
+                    if(highest_hyp < N->L[N->layer_cnt-1].alpha[k]){ highest_hyp = N->L[N->layer_cnt-1].alpha[k]; ind_hyp = k; }
+                }
+                if(ind_test == ind_hyp) correct_guesses++;
+            }
+
+            printf("ACCURACY IS %f\n", ((float)correct_guesses/NUM_TEST)*100);
+            if(((float)correct_guesses/NUM_TEST)*100 > 94) eta = 0.14;
+            else if(((float)correct_guesses/NUM_TEST)*100 > 93) eta = 0.08;
+            else if(((float)correct_guesses/NUM_TEST)*100 > 91) eta = 0.02;
+        }
     }
 
     kill_backprop(W_SUM, lcnt); 

@@ -4,42 +4,47 @@
 #define TRAINING_SET 4
 
 int main(){
-    float in[4][2] = {{0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}};
-    float out[4][1] = {{0.0f}, {1.0f}, {1.0f}, {0.0f}};
+    uint32_t ncnt[] = {200, 100, 80, 10};
 
-    float** real_in = calloc(4, sizeof(float*)), **real_out = calloc(4, sizeof(float*));
-
-    for(int i = 0; i < 4; i++){
-        real_in[i] = calloc(2, sizeof(float));
-        real_in[i][0] = in[i][0];
-        real_in[i][1] = in[i][1];
-
-        real_out[i] = calloc(1, sizeof(float));
-        real_out[i][0] = out[i][0];
-    }
-
-    uint32_t ncnt[] = {4, 1};
-// IGNORE THIS; SERVES SOLELY TO CYCLE PRNG A RANDOM NUMBER OF TIMES
     int a = 0;
     getrandom(&a, sizeof(int), 0);
-    a %= 65536;
-    for(int i = 0; i < a; i++) printf("%f ", RandomFloat(-1, 1));
-    puts("");
+    srand(a);
+    load_mnist();
 
-    struct NETWORK* N = train(1000, ncnt, 2, real_in, 4, 2, real_out, 4, 0.1);
 
-    puts("OUTPUT\t\tINPUT 0\t\tINPUT 1\t\tEXPECTED OUTPUT");
-    for(int j = 0; j < 4; j++){
-        forward_pass(N, in[j], 2);
-        printf("%f\t%f\t%f\t%f\n", N->L[N->layer_cnt-1].alpha[0], in[j][0], in[j][1], out[j][0]);
+    struct NETWORK* N = init_network(ncnt, 4, SIZE);
+
+    FILE* fd = fopen("highaccuracy.bin", "r+b");
+        
+    fread(N->L[0].weights, sizeof(float), SIZE*N->L[0].neuron_cnt, fd);
+    fread(N->L[0].biases, sizeof(float), N->L[0].neuron_cnt, fd);
+    
+    for(int j = 1; j < N->layer_cnt; j++){
+        fread(N->L[j].weights, sizeof(float), N->L[j-1].neuron_cnt*N->L[j].neuron_cnt, fd);
+        fread(N->L[j].biases, sizeof(float), N->L[j].neuron_cnt, fd);
     }
-// cleanup
+    fclose(fd);
+
+    int correct_guesses = 0;
+    for(int i = 0; i < NUM_TEST; i++){
+        forward_pass(N, test_image[i], SIZE);
+
+        float highest_hyp = 0, highest_test = 0;
+        int ind_hyp = 0, ind_test = 0;
+
+        for(int k = 0; k < 10; k++){
+            if(highest_test < test_label[i][k]){ highest_test = test_label[i][k]; ind_test = k; }
+            if(highest_hyp < N->L[N->layer_cnt-1].alpha[k]){ highest_hyp = N->L[N->layer_cnt-1].alpha[k]; ind_hyp = k; }
+        }
+
+        if(ind_test == ind_hyp) correct_guesses++;
+        else{ printf("%d %d\n", ind_test, ind_hyp); print_number(test_image[i]); }
+    }
+
+    printf("ACCURACY IS %f\n", ((float)correct_guesses/NUM_TEST)*100);
+
+
     kill_network(N);
-    for(int i = 0; i < 4; i++){
-        free(real_in[i]); 
-        free(real_out[i]);
-    }
-    free(real_in); free(real_out);
 
     return 0;
 }
