@@ -4,7 +4,6 @@
 #include "sys/random.h"
 #include "math.h"
 #include "stdio.h"
-#include "MNIST_for_C-master/mnist.h"
 
 #define BITS_IN_UINT64_T 64
 #define BITS_IN_UINT16_T 16
